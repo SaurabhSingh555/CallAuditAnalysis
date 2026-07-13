@@ -11,7 +11,7 @@ Flow:
   6. Pick call-type and count
   7. Choose sort order
   8. Run VAD (Silero) to get Talk Time / Silence / Dead Air / Longest Silence
-  9. **NEW**: Transcribe each call with Groq Whisper → RoBERTa sentiment analysis → add Sentiment column
+  9. Transcribe each call with Groq Whisper → RoBERTa sentiment analysis → add Sentiment column
  10. Download final Excel report with two sheets: Call Report + Agent Analytics
  11. Agent-wise analysis sheet included (updated categories: Short<2min, Medium 2-5min, Large>5min)
 """
@@ -34,11 +34,7 @@ import librosa
 from bs4 import BeautifulSoup
 import streamlit as st
 import torch
-
-# ---------- NEW IMPORTS for Groq + Transformers ----------
 import groq
-from transformers import pipeline
-from streamlit.errors import StreamlitSecretNotFoundError   # to handle missing secrets
 
 # ============================================================
 # PAGE CONFIG + SAAS-STYLE THEME
@@ -225,17 +221,17 @@ CDR_URL = f"{CRM_BASE}/report/cdr_report"
 try:
     CRM_EMAIL = st.secrets["CRM_EMAIL"]
     CRM_PASSWORD = st.secrets["CRM_PASSWORD"]
-except (StreamlitSecretNotFoundError, KeyError, AttributeError):
+except:
     CRM_EMAIL = "ispark@dialdesk.in"
     CRM_PASSWORD = "1234"
 
 # ============================================================
-# GROQ API KEY - load from secrets, fallback to provided key
+# GROQ API KEY - load from secrets
 # ============================================================
 try:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-except (StreamlitSecretNotFoundError, KeyError, AttributeError):
-    GROQ_API_KEY = "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"
+except:
+    GROQ_API_KEY = ""
 
 # ============================================================
 # ⚠️ CLIENTS - name -> company_id (edit this dict to add/remove clients)
@@ -605,7 +601,7 @@ def generate_agent_analytics(df, duration_col='_duration_sec'):
     return agent_stats
 
 # ============================================================
-# 🆕 GROQ WHISPER + SENTIMENT FUNCTIONS
+# 🆕 GROQ WHISPER + SENTIMENT FUNCTIONS - FIXED (Lazy Loading)
 # ============================================================
 
 @st.cache_resource(show_spinner="Loading RoBERTa sentiment model (first run only)...")
@@ -614,26 +610,37 @@ def load_sentiment_pipeline():
     Load a RoBERTa-based sentiment analysis pipeline from Hugging Face.
     Model: cardiffnlp/twitter-roberta-base-sentiment (supports negative/neutral/positive)
     """
-    return pipeline(
-        "sentiment-analysis",
-        model="cardiffnlp/twitter-roberta-base-sentiment",
-        device=-1,  # CPU (set to 0 for GPU if available)
-        top_k=None  # returns all labels
-    )
+    try:
+        # Lazy import - only loads transformers when this function is called
+        from transformers import pipeline
+        return pipeline(
+            "sentiment-analysis",
+            model="cardiffnlp/twitter-roberta-base-sentiment",
+            device=-1,  # CPU
+            top_k=None
+        )
+    except Exception as e:
+        st.warning(f"⚠️ Sentiment model not available: {e}")
+        return None
 
-def groq_transcribe(audio_file_path, api_key=GROQ_API_KEY):
+def groq_transcribe(audio_file_path, api_key):
     """
     Send audio file to Groq Whisper API and return the transcribed text.
     """
-    client = groq.Groq(api_key=api_key)
-    with open(audio_file_path, "rb") as f:
-        transcription = client.audio.transcriptions.create(
-            file=(os.path.basename(audio_file_path), f.read()),
-            model="whisper-large-v3-turbo",
-            response_format="text",
-            language="en"
-        )
-    return transcription
+    if not api_key:
+        return ""
+    try:
+        client = groq.Groq(api_key=api_key)
+        with open(audio_file_path, "rb") as f:
+            transcription = client.audio.transcriptions.create(
+                file=(os.path.basename(audio_file_path), f.read()),
+                model="whisper-large-v3-turbo",
+                response_format="text",
+                language="en"
+            )
+        return transcription
+    except Exception as e:
+        return ""
 
 def analyze_sentiment(text, pipeline):
     """
@@ -641,23 +648,22 @@ def analyze_sentiment(text, pipeline):
     Returns one of: 'Positive', 'Negative', 'Neutral'.
     """
     if not text or not text.strip():
-        return "Neutral"  # default for empty transcript
-    results = pipeline(text)
-    # results is a list of dicts: [{'label': 'LABEL_0', 'score': 0.9}, ...]
-    # Map labels: LABEL_0 -> Negative, LABEL_1 -> Neutral, LABEL_2 -> Positive
-    # We'll pick the label with highest score
-    if results and isinstance(results, list) and len(results) > 0:
-        # Sometimes it returns a list of dicts, or just a dict? The pipeline with top_k=None returns list of dicts for each label.
-        # We'll take the first element which is a list of dicts with labels.
-        # We need to find the highest score.
-        best = max(results[0], key=lambda x: x['score'])
-        label = best['label']
-        if label == 'LABEL_2':
-            return "Positive"
-        elif label == 'LABEL_0':
-            return "Negative"
-        else:
-            return "Neutral"
+        return "Neutral"
+    if pipeline is None:
+        return "Neutral"
+    try:
+        results = pipeline(text)
+        if results and isinstance(results, list) and len(results) > 0:
+            best = max(results[0], key=lambda x: x['score'])
+            label = best['label']
+            if label == 'LABEL_2':
+                return "Positive"
+            elif label == 'LABEL_0':
+                return "Negative"
+            else:
+                return "Neutral"
+    except Exception as e:
+        return "Neutral"
     return "Neutral"
 
 # ============================================================
@@ -1133,20 +1139,24 @@ if have_data:
                                             metrics["duration"] = round(total_duration, 2)
                                             
                                             # ---- NEW: Groq Whisper transcription ----
-                                            try:
-                                                transcript = groq_transcribe(mp3_path, api_key=GROQ_API_KEY)
-                                                # Sentiment analysis on transcript
-                                                sentiment = analyze_sentiment(transcript, sentiment_pipeline)
-                                            except Exception as e:
-                                                debug_status = f"Groq/Sentiment error: {e}"
-                                                transcript = None
-                                                sentiment = "Error"
+                                            if GROQ_API_KEY:
+                                                try:
+                                                    transcript = groq_transcribe(mp3_path, GROQ_API_KEY)
+                                                    # Sentiment analysis on transcript
+                                                    sentiment = analyze_sentiment(transcript, sentiment_pipeline)
+                                                except Exception as e:
+                                                    debug_status = f"Groq/Sentiment error: {str(e)[:100]}"
+                                                    transcript = None
+                                                    sentiment = "Error"
+                                                else:
+                                                    debug_status = "OK"
                                             else:
-                                                debug_status = "OK"
+                                                sentiment = "No API Key"
+                                                debug_status = "No API Key"
                     except requests.exceptions.RequestException as e:
-                        debug_status = f"Network/download error: {e}"
+                        debug_status = f"Network/download error: {str(e)[:100]}"
                     except Exception as e:
-                        debug_status = f"Processing error: {e}"
+                        debug_status = f"Processing error: {str(e)[:100]}"
                     finally:
                         if os.path.exists(mp3_path):
                             try: os.remove(mp3_path)
@@ -1155,7 +1165,7 @@ if have_data:
                             try: os.remove(wav_path)
                             except Exception: pass
 
-                    if debug_status != "OK" and "Groq" not in debug_status:
+                    if debug_status != "OK" and debug_status != "No API Key" and "Groq" not in debug_status:
                         st.warning(f"Row {i+1} ({row.get(col_agent) if col_agent else ''}): {debug_status}")
 
                     crm_duration = row.get("_duration_sec")
@@ -1172,7 +1182,7 @@ if have_data:
                         "Silence Time": metrics.get("silence_time"),
                         "Dead Air(included in Silence time)": metrics.get("dead_air"),
                         "Longest Silence": metrics.get("longest_silence"),
-                        "Sentiment": sentiment,                  # NEW column
+                        "Sentiment": sentiment,
                         "_debug_status": debug_status,
                     })
                     progress.progress((i + 1) / total_rows)
@@ -1200,7 +1210,7 @@ if have_data:
                 "Silence Time",
                 "Dead Air(included in Silence time)",
                 "Longest Silence",
-                "Sentiment",               # placed after VAD metrics
+                "Sentiment",
                 "Audio Duration(sec)",
                 "Actual MP3",
             ]
