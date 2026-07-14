@@ -848,7 +848,7 @@ if have_data:
                 "Short (< 2 min)",
                 "Medium (2 – 5 min)",
                 "Large (> 5 min)",
-                "Custom Filter",  # NEW option
+                "Custom Filter",
             ],
             horizontal=True,
         )
@@ -945,8 +945,8 @@ if have_data:
     table_df = table_df[final_display_cols]
 
     st.markdown(f"### Filtered Data – Sorted by Duration ({'ascending' if ascending_sort else 'descending'})")
-    # FIXED: use width='stretch' instead of use_container_width
-    st.dataframe(table_df, width='stretch', height=350)
+    # FIXED: use_container_width is correct for dataframes
+    st.dataframe(table_df, use_container_width=True, height=350)
 
     st.markdown('</div>', unsafe_allow_html=True)  # end step-card
 
@@ -1242,8 +1242,8 @@ if have_data:
             else:
                 st.success("✅ All calls processed successfully.")
 
-            # FIXED: use width='stretch' instead of use_container_width
-            st.dataframe(final_df.drop(columns=["_debug_status"]), width='stretch', height=380)
+            # FIXED: use_container_width is correct for dataframes
+            st.dataframe(final_df.drop(columns=["_debug_status"]), use_container_width=True, height=380)
             
             # Display Agent Analytics if available
             if agent_analytics_df is not None and len(agent_analytics_df) > 0:
@@ -1292,14 +1292,14 @@ if have_data:
                     best_large = agent_analytics_df.nlargest(1, 'Large_Calls')['Agent'].iloc[0] if len(agent_analytics_df) > 0 else "N/A"
                     st.metric("Most Large Calls", best_large)
                 
-                # Show detailed table - FIXED: use width='stretch' instead of use_container_width
+                # Show detailed table - FIXED: use_container_width is correct for dataframes
                 st.dataframe(
                     agent_analytics_df[[
                         'Rank', 'Agent', 'Total_Calls', 'Short_Calls', 'Short_%',
                         'Medium_Calls', 'Medium_%', 'Large_Calls', 'Large_%',
                         'Avg_Duration_Formatted', 'Total_Duration_Formatted'
                     ]],
-                    width='stretch',
+                    use_container_width=True,
                     height=300
                 )
 
