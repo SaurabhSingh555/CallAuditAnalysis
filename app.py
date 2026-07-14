@@ -234,19 +234,6 @@ except:
     GROQ_API_KEY = ""
 
 # ============================================================
-# HF TOKEN - load from secrets (optional but recommended)
-# ============================================================
-try:
-    HF_TOKEN = st.secrets["HF_TOKEN"]
-    os.environ["HF_TOKEN"] = HF_TOKEN
-except:
-    # For local testing only - remove in production
-    # UNCOMMENT THE NEXT TWO LINES FOR LOCAL TESTING ONLY
-    # HF_TOKEN = "YOUR_TOKEN_HERE"
-    # os.environ["HF_TOKEN"] = HF_TOKEN
-    pass  # Will work with lower rate limits
-
-# ============================================================
 # ⚠️ CLIENTS - name -> company_id (edit this dict to add/remove clients)
 # ============================================================
 CLIENTS = {
@@ -396,7 +383,7 @@ def html_recording_to_direct_url(webform_url, retries=3):
             if meta_refresh and meta_refresh.get("content"):
                 m = re.search(r"url=([^;]+)", meta_refresh.get("content"), re.IGNORECASE)
                 if m:
-                    return urljoin(webform_url, m.group(1))
+                    return html_recording_to_direct_url(urljoin(webform_url, m.group(1)), retries=retries - 1)
             for link in soup.find_all("a", href=True):
                 href = link.get("href", "")
                 if any(ext in href.lower() for ext in audio_exts):
@@ -848,7 +835,7 @@ if have_data:
                 "Short (< 2 min)",
                 "Medium (2 – 5 min)",
                 "Large (> 5 min)",
-                "Custom Filter",
+                "Custom Filter",  # NEW option
             ],
             horizontal=True,
         )
@@ -871,22 +858,22 @@ if have_data:
                 help="Use 'duration' as variable name. Example: duration < 120 (less than 2 min)",
                 key="custom_filter_input"
             )
-            # Show quick preset buttons - FIXED: use width='stretch' instead of use_container_width
+            # Show quick preset buttons
             col_preset1, col_preset2, col_preset3, col_preset4 = st.columns(4)
             with col_preset1:
-                if st.button("⬇️ < 2 min", width='stretch'):
+                if st.button("⬇️ < 2 min", use_container_width=True):
                     st.session_state.custom_filter_input = "duration < 120"
                     st.rerun()
             with col_preset2:
-                if st.button("⬆️ > 8 min", width='stretch'):
+                if st.button("⬆️ > 8 min", use_container_width=True):
                     st.session_state.custom_filter_input = "duration > 480"
                     st.rerun()
             with col_preset3:
-                if st.button("📊 2-5 min", width='stretch'):
+                if st.button("📊 2-5 min", use_container_width=True):
                     st.session_state.custom_filter_input = "duration >= 120 and duration <= 300"
                     st.rerun()
             with col_preset4:
-                if st.button("📊 5-10 min", width='stretch'):
+                if st.button("📊 5-10 min", use_container_width=True):
                     st.session_state.custom_filter_input = "duration >= 300 and duration <= 600"
                     st.rerun()
     
@@ -945,7 +932,6 @@ if have_data:
     table_df = table_df[final_display_cols]
 
     st.markdown(f"### Filtered Data – Sorted by Duration ({'ascending' if ascending_sort else 'descending'})")
-    # FIXED: use_container_width is correct for dataframes
     st.dataframe(table_df, use_container_width=True, height=350)
 
     st.markdown('</div>', unsafe_allow_html=True)  # end step-card
@@ -1242,7 +1228,6 @@ if have_data:
             else:
                 st.success("✅ All calls processed successfully.")
 
-            # FIXED: use_container_width is correct for dataframes
             st.dataframe(final_df.drop(columns=["_debug_status"]), use_container_width=True, height=380)
             
             # Display Agent Analytics if available
@@ -1292,7 +1277,7 @@ if have_data:
                     best_large = agent_analytics_df.nlargest(1, 'Large_Calls')['Agent'].iloc[0] if len(agent_analytics_df) > 0 else "N/A"
                     st.metric("Most Large Calls", best_large)
                 
-                # Show detailed table - FIXED: use_container_width is correct for dataframes
+                # Show detailed table
                 st.dataframe(
                     agent_analytics_df[[
                         'Rank', 'Agent', 'Total_Calls', 'Short_Calls', 'Short_%',
