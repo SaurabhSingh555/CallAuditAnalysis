@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-CallAI Analytics - Streamlit App (SaaS Edition) - VAD ONLY
-===========================================================
+CallAI Analytics - Streamlit App (VAD ONLY - Direct Package)
+============================================================
 Flow:
   1. Silent login to CRM (fixed credentials, no login screen)
   2. Pick client, date range
@@ -576,7 +576,6 @@ def generate_agent_analytics(df, duration_col='_duration_sec'):
 def apply_custom_filter(df, filter_expr):
     """
     Apply custom filter expression on duration column.
-    Supports: <, >, <=, >=, ==, !=, and, or
     """
     if df is None or len(df) == 0:
         return df
@@ -598,6 +597,43 @@ def apply_custom_filter(df, filter_expr):
     except Exception as e:
         st.error(f"⚠️ Error in filter expression: {e}")
         return df
+
+# ============================================================
+# 🆕 VAD MODEL LOAD - DIRECT PACKAGE (NO TORCH.HUB)
+# ============================================================
+
+@st.cache_resource(show_spinner="Loading voice-detection model (first run only)...")
+def load_vad_model():
+    """
+    Load Silero VAD using direct package - no torch.hub dependency.
+    This avoids GitHub API rate limits and authentication issues.
+    """
+    try:
+        from silero_vad import SileroVAD
+        
+        # Initialize VAD
+        vad = SileroVAD()
+        
+        # Wrapper function to match old API
+        def get_speech_timestamps_wrapper(audio_tensor, sampling_rate=16000, **kwargs):
+            """
+            Wrapper for SileroVAD.get_speech_timestamps
+            """
+            return vad.get_speech_timestamps(
+                audio_tensor,
+                sampling_rate=sampling_rate,
+                **kwargs
+            )
+        
+        # Return in same format as torch.hub version
+        return vad, (get_speech_timestamps_wrapper,)
+        
+    except ImportError as e:
+        st.error(f"⚠️ silero-vad package not installed. Please add 'silero-vad>=5.1.0' to requirements.txt")
+        raise
+    except Exception as e:
+        st.error(f"⚠️ Failed to load VAD model: {e}")
+        raise
 
 # ============================================================
 # STEP 1 — CLIENT + DATE RANGE + FETCH
@@ -850,26 +886,6 @@ if have_data:
         elif len(selected_df) == 0:
             st.warning("No calls selected.")
         else:
-            @st.cache_resource(show_spinner="Loading voice-detection model (first run only)...")
-            def load_vad_model():
-                hub_dir = os.path.expanduser("~/.cache/torch/hub")
-                try:
-                    os.makedirs(hub_dir, exist_ok=True)
-                except Exception:
-                    hub_dir = os.path.join(tempfile.gettempdir(), "torch_hub")
-                    os.makedirs(hub_dir, exist_ok=True)
-                
-                torch.hub.set_dir(hub_dir)
-                try:
-                    model, utils = torch.hub.load(
-                        "snakers4/silero-vad", "silero_vad", force_reload=False, trust_repo=True
-                    )
-                except Exception:
-                    model, utils = torch.hub.load(
-                        "snakers4/silero-vad", "silero_vad", force_reload=False
-                    )
-                return model, utils
-
             model, utils = load_vad_model()
             get_speech_timestamps = utils[0]
 
@@ -903,7 +919,7 @@ if have_data:
 
             def run_vad(audio_tensor):
                 return get_speech_timestamps(
-                    audio_tensor, model, sampling_rate=16000,
+                    audio_tensor, sampling_rate=16000,
                     threshold=VAD_CFG["threshold"],
                     min_speech_duration_ms=VAD_CFG["min_speech_duration_ms"],
                     min_silence_duration_ms=VAD_CFG["min_silence_duration_ms"],
