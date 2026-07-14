@@ -37,6 +37,11 @@ import torch
 import groq
 
 # ============================================================
+# 🔥 HARDCODED HF_TOKEN
+# ============================================================
+os.environ["HF_TOKEN"] = "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"
+
+# ============================================================
 # PAGE CONFIG + SAAS-STYLE THEME
 # ============================================================
 st.set_page_config(
@@ -611,7 +616,7 @@ def load_sentiment_pipeline():
     Model: cardiffnlp/twitter-roberta-base-sentiment (supports negative/neutral/positive)
     """
     try:
-        # Lazy import - only loads transformers when this function is called
+        # HF_TOKEN already set at the top of the file
         from transformers import pipeline
         return pipeline(
             "sentiment-analysis",
@@ -932,7 +937,7 @@ if have_data:
     table_df = table_df[final_display_cols]
 
     st.markdown(f"### Filtered Data – Sorted by Duration ({'ascending' if ascending_sort else 'descending'})")
-    st.dataframe(table_df, use_container_width=True, height=350)
+    st.dataframe(table_df, width='stretch', height=350)
 
     st.markdown('</div>', unsafe_allow_html=True)  # end step-card
 
@@ -1228,7 +1233,7 @@ if have_data:
             else:
                 st.success("✅ All calls processed successfully.")
 
-            st.dataframe(final_df.drop(columns=["_debug_status"]), use_container_width=True, height=380)
+            st.dataframe(final_df.drop(columns=["_debug_status"]), width='stretch', height=380)
             
             # Display Agent Analytics if available
             if agent_analytics_df is not None and len(agent_analytics_df) > 0:
@@ -1284,7 +1289,7 @@ if have_data:
                         'Medium_Calls', 'Medium_%', 'Large_Calls', 'Large_%',
                         'Avg_Duration_Formatted', 'Total_Duration_Formatted'
                     ]],
-                    use_container_width=True,
+                    width='stretch',
                     height=300
                 )
 
